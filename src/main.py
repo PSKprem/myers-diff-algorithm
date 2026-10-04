@@ -16,43 +16,72 @@ def read_file_as_lines(path: str) -> list[bytes] | None:
 
 def myers_diff(a, b):
     """
-    Diff algorithm using LCS approach.
-    Returns list of (op, item) tuples representing the edit script.
+    Myers O(ND) difference algorithm.
+    Based on: http://www.xmailserver.org/diff2.pdf
+    
+    This implementation builds the edit script incrementally as it explores
+    the edit graph, avoiding the need for backtracking.
     """
     n, m = len(a), len(b)
     
+    # Handle edge cases
     if n == 0:
         return [('insert', item) for item in b]
     if m == 0:
         return [('delete', item) for item in a]
     
-    # DP table for LCS length
-    dp = [[0] * (m + 1) for _ in range(n + 1)]
+    # Frontier maps diagonal k to (x_position, history)
+    # k = x - y, so each diagonal represents x - y = constant
+    frontier = {1: (0, [])}
     
-    for i in range(1, n + 1):
-        for j in range(1, m + 1):
-            if a[i-1] == b[j-1]:
-                dp[i][j] = dp[i-1][j-1] + 1
+    a_max = n
+    b_max = m
+    
+    for d in range(0, a_max + b_max + 1):
+        for k in range(-d, d + 1, 2):
+            # Decide whether to go DOWN (insert) or RIGHT (delete)
+            # DOWN: come from k+1 diagonal (y increases)
+            # RIGHT: come from k-1 diagonal (x increases)
+            go_down = (k == -d or 
+                       (k != d and frontier.get(k - 1, (-1, []))[0] < 
+                        frontier.get(k + 1, (-1, []))[0]))
+            
+            if go_down:
+                # Move DOWN (insert from b)
+                old_x, history = frontier[k + 1]
+                x = old_x
             else:
-                dp[i][j] = max(dp[i-1][j], dp[i][j-1])
+                # Move RIGHT (delete from a)
+                old_x, history = frontier[k - 1]
+                x = old_x + 1
+            
+            # Copy history to avoid modifying shared state
+            history = list(history)
+            
+            y = x - k
+            
+            # Record the edit operation
+            # Use 1-indexed positions for comparisons (Myers paper convention)
+            if 1 <= y <= b_max and go_down:
+                history.append(('insert', b[y - 1]))
+            elif 1 <= x <= a_max:
+                history.append(('delete', a[x - 1]))
+            
+            # Follow the diagonal ("snake") - matching elements
+            while x < a_max and y < b_max and a[x] == b[y]:
+                x += 1
+                y += 1
+                history.append(('keep', a[x - 1]))
+            
+            # Check if we've reached the end
+            if x >= a_max and y >= b_max:
+                return history
+            
+            # Update frontier for this diagonal
+            frontier[k] = (x, history)
     
-    # Backtrack to build edit script
-    result = []
-    i, j = n, m
-    while i > 0 or j > 0:
-        if i > 0 and j > 0 and a[i-1] == b[j-1]:
-            result.append(('keep', a[i-1]))
-            i -= 1
-            j -= 1
-        elif j > 0 and (i == 0 or dp[i][j-1] >= dp[i-1][j]):
-            result.append(('insert', b[j-1]))
-            j -= 1
-        else:
-            result.append(('delete', a[i-1]))
-            i -= 1
-    
-    result.reverse()
-    return result
+    # Should never reach here
+    return []
 
 
 def print_diff_lines(ops):
